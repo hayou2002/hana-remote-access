@@ -15,6 +15,23 @@ import {
   extractQuickUrl,
   relayPublicAddress,
   buildCommand,
+  releaseAssetName,
+  parseLatestRelease,
+  pickReleaseAsset,
+  mirrorDownloadUrl,
+  mirrorLabel,
+  cftunnelInstallDir,
+  isUpToDate,
+  engineBinaryName,
+  engineBinDir,
+  parsePinnedFrpVersion,
+  frpAssetName,
+  frpDownloadUrl,
+  cloudflaredDownloadUrl,
+  cftunnelLatestDownloadUrl,
+  extractDownloadUrl,
+  parseHelpCommands,
+  featureAvailability,
 } from "../remote-access/lib/cftunnel-core.js";
 
 let pass = 0;
@@ -172,6 +189,197 @@ t("构造 quick", () => {
 
 t("未知操作报错", () => {
   assert.ok(buildCommand("nope").error);
+});
+
+console.log("\n-- 安装与引擎 --");
+
+// --- 发布资产 ---
+t("平台资产名", () => {
+  assert.equal(releaseAssetName("win32", "x64"), "cftunnel_windows_amd64.zip");
+  assert.equal(releaseAssetName("linux", "arm64"), "cftunnel_linux_arm64.tar.gz");
+  assert.equal(releaseAssetName("darwin", "x64"), "cftunnel_darwin_amd64.tar.gz");
+  assert.equal(releaseAssetName("freebsd", "x64"), null);
+});
+
+t("本体 latest 下载地址不钉版本", () => {
+  const u = cftunnelLatestDownloadUrl("win32", "x64");
+  assert.ok(u.includes("/releases/download/latest/download/cftunnel_windows_amd64.zip"));
+});
+
+t("解析 latest 发布（真实样例）", () => {
+  const sample = JSON.stringify({
+    tag_name: "v0.4.4",
+    published_at: "2026-09-26T14:12:54Z",
+    assets: [
+      { name: "cftunnel_windows_amd64.zip", browser_download_url: "https://x/a.zip", size: 100 },
+      { name: "cftunnel_linux_amd64.tar.gz", browser_download_url: "https://x/b.tgz", size: 90 },
+    ],
+  });
+  const r = parseLatestRelease(sample);
+  assert.equal(r.ok, true);
+  assert.equal(r.tag, "v0.4.4");
+  assert.equal(r.version, "0.4.4");
+  assert.equal(r.assets.length, 2);
+  const a = pickReleaseAsset(r.assets, "win32", "x64");
+  assert.equal(a.name, "cftunnel_windows_amd64.zip");
+});
+
+t("latest 解析异常不崩", () => {
+  assert.equal(parseLatestRelease("not json").ok, false);
+  assert.equal(parseLatestRelease("{}").ok, false);
+  assert.equal(pickReleaseAsset(null, "win32", "x64"), null);
+});
+
+// --- 更新判定：靠字符串相等，不靠 semver ---
+t("更新判定用字符串相等（版本号回退项目）", () => {
+  // 该项目 0.8.1 发布于 3 月、0.4.4 发布于 9 月，semver 比较会得出错误结论
+  assert.equal(isUpToDate("0.8.1", "0.8.1"), true);
+  assert.equal(isUpToDate("v0.8.1", "0.8.1"), true);
+  assert.equal(isUpToDate("0.8.1", "0.4.4"), false); // 不能因为 0.8.1>0.4.4 就判“已最新”
+  assert.equal(isUpToDate("", "0.4.4"), false);
+  assert.equal(isUpToDate("0.4.4", ""), false);
+});
+
+// --- 镜像 ---
+t("镜像 URL 与标签", () => {
+  assert.equal(mirrorDownloadUrl("https://g/x.zip", ""), "https://g/x.zip");
+  assert.equal(mirrorDownloadUrl("https://g/x.zip", "https://ghfast.top/"), "https://ghfast.top/https://g/x.zip");
+  assert.equal(mirrorLabel(""), "直连");
+  assert.equal(mirrorLabel("https://ghfast.top/"), "ghfast.top");
+});
+
+// --- 安装目录 ---
+t("安装目录按平台", () => {
+  assert.equal(cftunnelInstallDir({ LOCALAPPDATA: "C:\\U\\L" }, "win32"), "C:\\U\\L\\cftunnel");
+  assert.equal(cftunnelInstallDir({ HOME: "/home/u" }, "linux"), "/home/u/.local/bin");
+  assert.equal(cftunnelInstallDir({}, "linux"), null);
+});
+
+// --- 引擎 ---
+t("引擎文件名", () => {
+  assert.equal(engineBinaryName("frpc", "win32"), "frpc.exe");
+  assert.equal(engineBinaryName("cloudflared", "linux"), "cloudflared");
+  assert.equal(engineBinaryName("frpc", "darwin"), "frpc");
+});
+
+t("引擎目录 = 配置目录/bin", () => {
+  assert.equal(engineBinDir({ HOME: "/home/u" }, "linux"), "/home/u/.cftunnel/bin");
+  assert.equal(engineBinDir({ USERPROFILE: "C:\\U" }, "win32"), "C:\\U/.cftunnel/bin");
+});
+
+t("从 cftunnel 二进制里读钉死的 frp 版本", () => {
+  const text = '...\nFRP_VERSION="0.66.0"\nFILENAME="frp_${FRP_VERSION}_linux_${FRP_ARCH}.tar.gz"';
+  assert.equal(parsePinnedFrpVersion(text), "0.66.0");
+  assert.equal(parsePinnedFrpVersion("nothing here"), null);
+});
+
+t("frp 资产名与下载地址（按钉死版本）", () => {
+  const a = frpAssetName("0.66.0", "win32", "x64");
+  assert.equal(a.file, "frp_0.66.0_windows_amd64.zip");
+  assert.equal(a.dir, "frp_0.66.0_windows_amd64");
+  assert.ok(frpDownloadUrl("0.66.0", "win32", "x64").includes("/releases/download/v0.66.0/frp_0.66.0_windows_amd64.zip"));
+  assert.equal(frpAssetName(null, "win32", "x64"), null);
+});
+
+t("cloudflared 下载地址走 latest", () => {
+  assert.ok(cloudflaredDownloadUrl("win32", "x64").endsWith("/latest/download/cloudflared-windows-amd64.exe"));
+  assert.ok(cloudflaredDownloadUrl("linux", "arm64").endsWith("/latest/download/cloudflared-linux-arm64"));
+});
+
+t("从输出里抓下载地址（兜底路径）", () => {
+  const t = '尝试下载: https://github.com/fatedier/frp/releases/download/v0.66.0/frp_0.66.0_windows_amd64.zip';
+  assert.equal(extractDownloadUrl(t), "https://github.com/fatedier/frp/releases/download/v0.66.0/frp_0.66.0_windows_amd64.zip");
+  assert.equal(extractDownloadUrl("无链接"), null);
+});
+
+console.log("\n-- 官方文档对齐 --");
+
+// --- 官方分享/模板/历史命令 ---
+t("quick 支持官方 --proto/--share/--qr/--telegram", () => {
+  assert.deepEqual(buildCommand("quick", { port: 3000 }).argv, ["quick", "3000"]);
+  assert.deepEqual(buildCommand("quick", { port: 9987, useRelay: true, proto: "udp" }).argv, ["quick", "9987", "--relay", "--proto", "udp"]);
+  assert.deepEqual(buildCommand("quick", { port: 3000, share: true }).argv, ["quick", "3000", "--share"]);
+  assert.deepEqual(buildCommand("quick", { port: 3000, qr: true }).argv, ["quick", "3000", "--qr"]);
+  assert.deepEqual(buildCommand("quick", { port: 3000, auth: "u:p" }).argv, ["quick", "3000", "--auth", "u:p"]);
+});
+
+t("share / preset / history 命令构造", () => {
+  assert.deepEqual(buildCommand("share", { address: "https://x.trycloudflare.com" }).argv, ["share", "https://x.trycloudflare.com"]);
+  assert.deepEqual(buildCommand("share", { address: "https://x", qr: true }).argv, ["share", "https://x", "--qr"]);
+  assert.ok(buildCommand("share", {}).error);
+  assert.deepEqual(buildCommand("presetList").argv, ["preset", "list"]);
+  assert.deepEqual(buildCommand("presetRun", { name: "frontend", share: true }).argv, ["preset", "frontend", "--share"]);
+  assert.ok(buildCommand("presetRun", {}).error);
+  assert.deepEqual(buildCommand("history").argv, ["history"]);
+  assert.deepEqual(buildCommand("historyClear").argv, ["history", "clear"]);
+});
+
+t("destroy / reset 支持 --force（官方）", () => {
+  assert.deepEqual(buildCommand("destroy").argv, ["destroy"]);
+  assert.deepEqual(buildCommand("destroy", { force: true }).argv, ["destroy", "--force"]);
+  assert.deepEqual(buildCommand("reset", { force: true }).argv, ["reset", "--force"]);
+});
+
+// --- 能力探测（本机 0.8.1 真实 --help 输出片段）---
+t("解析 --help 的命令表（真实输出）", () => {
+  const help = `Cloudflare Tunnel 一键管理工具
+
+Usage:
+  cftunnel [command]
+
+Available Commands:
+  add         添加路由（自动创建 CNAME + 更新 ingress）
+  destroy     删除隧道
+  quick       快速启动免域名隧道
+  relay       中继模式
+  status      查看隧道状态
+  update      更新 cftunnel 到最新版本
+
+Flags:
+  -h, --help   help for cftunnel`;
+  const cmds = parseHelpCommands(help);
+  assert.ok(cmds.has("quick"));
+  assert.ok(cmds.has("relay"));
+  assert.ok(cmds.has("update"));
+  assert.equal(cmds.has("preset"), false);
+  assert.equal(cmds.size, 6);
+});
+
+t("能力探测：本机无 preset/history/share → 置灰", () => {
+  const help = `Available Commands:
+  add    添加路由
+  quick  快速隧道
+  relay  中继
+  status 状态
+
+Flags:
+  -h, --help`;
+  const f = featureAvailability(parseHelpCommands(help));
+  assert.equal(f.quick, true);
+  assert.equal(f.preset, false);
+  assert.equal(f.history, false);
+  assert.equal(f.share, false);
+  assert.equal(f.known, true);
+});
+
+t("能力探测：新版全部具备", () => {
+  const help = `Available Commands:
+  quick    快速隧道
+  relay    中继
+  share    分享
+  preset   模板
+  history  历史
+
+Flags:`;
+  const f = featureAvailability(parseHelpCommands(help));
+  assert.equal(f.share, true);
+  assert.equal(f.preset, true);
+  assert.equal(f.history, true);
+});
+
+t("能力探测失败（空）不应误判", () => {
+  const f = featureAvailability(parseHelpCommands(""));
+  assert.equal(f.known, false);
 });
 
 console.log(`\n${pass} 项通过${process.exitCode ? "，有失败" : "，全部通过"}`);

@@ -93,6 +93,13 @@
       <button class="btn btn--ghost" id="reload" type="button">重新载入</button>
       <span class="muted" id="save-hint"></span>
     </div>
+
+    <section class="card card--flat">
+      <p class="card__hint">
+        说明：cftunnel 自身配置存于 <code>~/.cftunnel/config.yml</code>，Cloud 段与 Relay 段独立共存。
+        其中 <code>self_update.auto_check</code>（默认开启）由 cftunnel 自己控制，本 App 不接管。
+      </p>
+    </section>
   </main>
   <script type="module" src="./assets/settings.js"></script>
 </body>

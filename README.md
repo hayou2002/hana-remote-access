@@ -20,16 +20,44 @@ Hana 跑在你自己的电脑上，服务只监听本机端口——出了家门
 | 想做的事 | 在面板里 |
 |---|---|
 | 在外面用浏览器连回家里的 Hana | 启动隧道 → 复制公网地址 → 手机浏览器打开（入口自动带 `/pad/`） |
+| 装好 cftunnel 与两个引擎 | 「安装与引擎」板块：检查更新 / 一键升级 / 引擎预装修复 |
 | 临时把某个端口分享给别人看 | 「临时分享」填端口，一键起 `trycloudflare` 地址 |
 | 排查"显示在跑但访问不了" | 「链路诊断」逐段给出服务器 / 本地 / 远程端口通不通、延迟多少 |
 | 穿透多个服务 | 「穿透路由」加规则，一条隧道带多端口 |
 | 让隧道比 Hana 活得久 | 「注册为系统服务」，Hana 关了也不断 |
-| 直接在对话里操作 | 已注册 `remote_access_status / control / diagnose` 三个工具，问一句"隧道通了吗"就行 |
+| 直接在对话里操作 | 已注册 `remote_access_status / control / diagnose / install / check_update / extra` 六个工具 |
+
+## 与官方能力的一致性
+
+本 App 是官方 CLI 的**图形外壳**，不是替代品：
+
+- **命令、术语、模式语义全部以 [官方文档](https://qingchencloud.github.io/cftunnel/) 为准**，不自创用法。
+- **本 App 的增益只有两处**：① 把命令搬到面板按钮；② 下载走国内镜像加速（官方本身不带此能力，其自动下载在国内容易失败）。
+- 面板会**探测本机 cftunnel 版本**：官方新增的命令（如 `preset` / `history` / `share`）在你未升级前会置灰并提示，不让你点到一个会报错的按钮。
+
+### 官方配置文件（本 App 不改它）
+
+cftunnel 自己的配置在 `~/.cftunnel/config.yml`，Cloud 段与 `relay` 段**独立共存**。其中 `self_update.auto_check`（默认开启）控制"启动隧道时自动检查更新"——这是 cftunnel 自己的行为，本 App 不接管也不篡改；面板的「检查更新」是另一条独立的、你主动发起的检查。
+
+## 三层结构（先弄清这个）
+
+用个比方：**cftunnel 是管家，两个引擎是干活的工人，frps 是你在自己服务器上设的中转站。**
+
+| 层 | 东西 | 干什么 | 装在哪 | 本 App 管不管 |
+|---|---|---|---|---|
+| ① 管家 | **cftunnel** | 你下命令，它调工人、管配置 | `%LOCALAPPDATA%\cftunnel` | ✓ 装/更新/重装/卸载 |
+| ② 工人 A | **cloudflared** | Cloud 模式（Cloudflare 那条路） | `~/.cftunnel/bin` | ✓ 预装/修复 |
+| ② 工人 B | **frpc** | Relay 模式（你自己的服务器那条路） | `~/.cftunnel/bin` | ✓ 预装/修复 |
+| ③ 中转站 | **frps** | 装在你自己公网服务器上，负责转发 | 你的服务器（仅 Linux） | ✗ 暂未纳入 |
+
+**关键**：管家装好后不会自动带上两个工人，第一次用时它自己去网上下——国内常卡在这里。本 App 的「安装与引擎」板块就是治这个病的：一次把三样备齐，且镜像自动回退。
+
+> 引擎版本会跟随 cftunnel 内置的版本（自动从它的二进制里读出，如 `0.66.0`），不随便取最新——frp 要求客户端/服务端版本对齐，乱升会连不上。
 
 ## 快速上手
 
-1. **装引擎**：本 App 不自带 cftunnel（约 19MB，且需要独立更新）。到 [Releases](https://github.com/qingchencloud/cftunnel/releases/latest) 下载装好即可；面板会自动探测安装位置。
-   - 小提示：Relay 模式首次启动时 cftunnel 会联网下载 frpc 引擎，国内网络容易失败。若卡在"正在下载 frpc"，从 frp 官方 Release 拿 `frpc.exe` 放进 `~/.cftunnel/bin/` 再启动。
+1. **装引擎**：本 App 不自带 cftunnel（约 19MB，且需要独立更新）。面板「安装与引擎」里点一下就能装；也可以到 [Releases](https://github.com/qingchencloud/cftunnel/releases/latest) 手动下。
+   - 「预装 / 修复引擎」就是根治“卡在正在下载 frpc”的那个按钮——它会把 cloudflared 与 frpc 直接放好，不用管家再去下单。
 2. **装 App**：把 Releases 里的 `app-remote-access-x.y.z.zip` 在 Hana「市场 → 已安装 → 从本地安装」装上并批准。
 3. **配中继**（用 Cloud 模式可跳过）：设置页填你的 frps 地址 `IP:7000` 与鉴权密钥；或直接先在终端跑一次 `cftunnel relay init`。
 4. **开隧道**：面板点「启动隧道」，复制公网地址，手机浏览器打开。
@@ -37,6 +65,8 @@ Hana 跑在你自己的电脑上，服务只监听本机端口——出了家门
 ![管理面板：状态、启停、临时分享、路由、诊断、自启动](docs/panel.png)
 
 ## 两种模式怎么选
+
+> 官方口径：**两种模式配置独立共存**，可同时配好、分别启停，不是二选一。（配置文件 `~/.cftunnel/config.yml` 里 `auth/tunnel/routes` 与 `relay` 两段互不影响。）
 
 | | Cloud（Cloudflare） | Relay（自建 frp） |
 |---|---|---|
@@ -65,9 +95,28 @@ remote-access/
 ```
 
 - 校验：`node <hana-app-creator>/scripts/validate_app.mjs --dir remote-access`（0 错误）
-- 单测：`node tests/core.test.mjs`（18 项通过，样例取自 cftunnel 0.8.1 真实输出）
+- 单测：`node tests/core.test.mjs`（38 项通过，样例取自 cftunnel 0.8.1 与 GitHub 发布的真实输出）
 
 ## 更新内容
+
+### v0.3.0
+- **全面对齐官方文档**（[qingchencloud.github.io/cftunnel](https://qingchencloud.github.io/cftunnel/)）：
+  - 补齐官方命令：`quick --proto udp`、`quick --share/--qr/--telegram`、`share`、`preset list`、`preset <名>`、`history [clear]`、`destroy/reset --force`
+  - 术语与模式语义改按官方口径：**Cloud 与 Relay 配置独立共存**（纠正了之前"二选一"的错误说法）
+  - 注释 `self_update.auto_check` 由 cftunnel 自身控制，本 App 不接管
+- 新增**能力探测**：读 `cftunnel --help` 得到实际命令表（不比版本号——该项目版本号会回退），未支持的功能在面板置灰并提示
+- 新增工具 `remote_access_extra`（share / preset / history）
+- 修正文案与说明多处
+
+### v0.2.0
+- 新增「安装与引擎」板块：
+  - 管家 cftunnel：一键安装 / 检查更新 / 更新 / 重装 / 卸载（卸载会连 PATH 一起清理）
+  - 引擎 cloudflared + frpc：一键预装/修复，根治“卡在正在下载 frpc”
+  - 镜像自动回退（按实测排序，每个源独立超时，不会卡死在一个源上）
+  - frpc 版本跟随 cftunnel 内置版本（自动读出），保证与中继服务端对齐
+- 新增两个模型工具：`remote_access_install`、`remote_access_check_update`
+- 权限新增 `app/resources.write`：安装会用宿主授权的正规通道写盘，不绕过沙箱
+- 修正：App 沙箱进程环境变量不含 `LOCALAPPDATA`，安装目录改用 `USERPROFILE` 兜底
 
 ### v0.1.1
 - 自启动前用实况（`relay check`）交叉校验，不被陈旧 `frpc.pid` 僵尸锁欺骗；检测到假死自动清锁重试

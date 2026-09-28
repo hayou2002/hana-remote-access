@@ -65,6 +65,64 @@
       </div>
     </section>
 
+    <!-- 安装与引擎（管家 + 两个引擎） -->
+    <section class="card" id="sec-install">
+      <h2 class="card__title">安装与引擎
+        <span id="install-badge" class="badge badge--idle">检查中</span>
+      </h2>
+      <p class="card__hint">
+        cftunnel 是“管家”，真正干活的两个引擎（cloudflared / frpc）由它自己按需下载——
+        国内常常下不动。这里可以一次把三样都装好。
+      </p>
+
+      <!-- 管家 -->
+      <div class="parts">
+        <div class="part">
+          <span class="part__dot" id="dot-cf"></span>
+          <div class="part__body">
+            <div class="part__name">管家 cftunnel</div>
+            <div class="part__meta" id="cf-meta">未检测</div>
+          </div>
+        </div>
+        <div class="row row--tight">
+          <button class="btn btn--primary btn--sm" id="btn-cf-install" type="button">安装</button>
+          <button class="btn btn--ghost btn--sm" id="btn-cf-update" type="button">检查更新</button>
+          <button class="btn btn--ghost btn--sm" id="btn-cf-reinstall" type="button">重装</button>
+          <button class="btn btn--danger-outline btn--sm" id="btn-cf-uninstall" type="button">卸载</button>
+        </div>
+        <div class="part__note" id="cf-latest"></div>
+      </div>
+
+      <!-- 引擎 -->
+      <div class="parts">
+        <div class="part">
+          <span class="part__dot" id="dot-engine"></span>
+          <div class="part__body">
+            <div class="part__name">引擎 cloudflared / frpc</div>
+            <div class="part__meta" id="engine-meta">未检测</div>
+          </div>
+        </div>
+        <div class="row row--tight">
+          <button class="btn btn--ghost btn--sm" id="btn-engine-repair" type="button">预装 / 修复引擎</button>
+        </div>
+        <div class="part__note">预装可根治“卡在正在下载 frpc”。frpc 版本会跟 cftunnel 内置的版本对齐。</div>
+      </div>
+
+      <!-- 作业进度 -->
+      <div class="job hidden" id="job-box">
+        <div class="job__head">
+          <span id="job-label">进行中</span>
+          <span class="muted" id="job-phase"></span>
+        </div>
+        <div class="job__bar"><span class="job__fill" id="job-fill"></span></div>
+        <pre class="pre log" id="job-log"></pre>
+      </div>
+
+      <p class="card__hint">
+        还有第三层——<strong>服务端 frps</strong>（装在你自己的公网服务器上），目前未纳入面板。
+      </p>
+    </section>
+
     <!-- 状态总览 -->
     <section class="card" id="sec-status">
       <h2 class="card__title">
@@ -82,18 +140,50 @@
 
     <!-- 临时分享 -->
     <section class="card" id="sec-quick">
-      <h2 class="card__title">临时分享</h2>
-      <p class="card__hint">给一个端口起一条临时隧道，适合快速调试或临时给别人看。进程停止即失效。</p>
+      <h2 class="card__title">临时分享 <span class="muted" id="quick-ver-note"></span></h2>
+      <p class="card__hint">给一个端口起一条临时隧道，适合快速调试或临时给别人看。Ctrl+C / 停止后域名自动失效。</p>
       <div class="row">
         <label class="field">
           <span class="field__label">端口</span>
-          <input class="input" id="quick-port" type="number" inputmode="numeric" placeholder="如 8080" />
+          <input class="input" id="quick-port" type="number" inputmode="numeric" placeholder="如 3000" />
+        </label>
+        <label class="field">
+          <span class="field__label">走中继</span>
+          <select class="input input--sm" id="quick-relay">
+            <option value="0">Cloud（免域名）</option>
+            <option value="1">Relay（自建）</option>
+          </select>
+        </label>
+        <label class="field" id="quick-proto-wrap">
+          <span class="field__label">协议</span>
+          <select class="input input--sm" id="quick-proto">
+            <option value="tcp">TCP</option>
+            <option value="udp">UDP</option>
+          </select>
         </label>
         <button class="btn btn--primary" id="btn-quick" type="button">开启临时隧道</button>
+      </div>
+      <div class="row row--tight2">
+        <label class="check"><input type="checkbox" id="quick-qr" /> 终端二维码</label>
+        <label class="check"><input type="checkbox" id="quick-telegram" /> Telegram 分享</label>
+        <label class="check"><input type="checkbox" id="quick-share" /> 生成分享信息</label>
       </div>
       <div class="quick-result hidden" id="quick-result">
         <span class="quick-url" id="quick-url"></span>
         <button class="btn btn--ghost btn--sm" id="quick-copy" type="button">复制</button>
+      </div>
+      <!-- 场景模板（官方 preset） -->
+      <div class="row row--tight2">
+        <label class="field">
+          <span class="field__label">场景模板</span>
+          <select class="input" id="preset-select"><option value="">— 选择模板 —</option></select>
+        </label>
+        <button class="btn btn--ghost btn--sm" id="btn-preset-refresh" type="button">读取模板</button>
+        <button class="btn btn--ghost btn--sm" id="btn-preset-run" type="button">按模板启动</button>
+      </div>
+      <div class="row row--tight2">
+        <button class="btn btn--ghost btn--sm" id="btn-history" type="button">查看端口记录</button>
+        <button class="btn btn--ghost btn--sm" id="btn-history-clear" type="button">清空记录</button>
       </div>
     </section>
 
@@ -124,6 +214,7 @@
       <div class="row">
         <button class="btn btn--ghost" id="btn-check" type="button">链路诊断</button>
         <button class="btn btn--ghost" id="btn-logs" type="button">查看隧道日志</button>
+        <button class="btn btn--ghost" id="btn-share" type="button">分享已有地址</button>
       </div>
       <pre class="pre hidden" id="diag-out"></pre>
     </section>

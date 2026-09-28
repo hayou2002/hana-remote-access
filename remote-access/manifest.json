@@ -2,13 +2,14 @@
   "manifestVersion": 2,
   "id": "remote-access",
   "name": "远程访问",
-  "version": "0.1.1",
+  "version": "0.3.0",
   "entry": "index.js",
   "capabilities": [
     "app/tools.expose-to-model",
     "app/process.spawn",
     "app/notifications.show",
     "app/resources.read",
+    "app/resources.write",
     "app/ui.clipboard-write",
     "app/ui.open-external"
   ],
@@ -28,6 +29,6 @@
     }
   },
   "icon": "assets/icon.svg",
-  "description": "把内网穿透工具 cftunnel 做成 Hana 面板：一键把本机服务暴露到公网，支持 Cloud（Cloudflare）与 Relay（自建 frp）双模式，可随 Hana 启动自动拉起隧道。",
+  "description": "把内网穿透工具 cftunnel 做成 Hana 面板：一键安装/更新/卸载 cftunnel 与它的引擎，暴露本机服务到公网，支持 Cloud（Cloudflare）与 Relay（自建 frp）双模式，可随 Hana 启动自动拉起隧道。",
   "minAppVersion": "0.1050.9"
 }

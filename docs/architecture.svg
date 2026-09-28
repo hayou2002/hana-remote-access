@@ -34,7 +34,7 @@
     <rect x="376" y="202" width="208" height="40" rx="9" fill="#f6efe6"/>
     <text x="390" y="227" font-size="11.5" fill="#6f6659">Cloud：Cloudflare 边缘 CDN</text>
     <rect x="376" y="252" width="208" height="26" rx="8" fill="#3d9a63" opacity="0.14"/>
-    <text x="390" y="269" font-size="11" fill="#3d9a63">两种模式二选一，随时切换</text>
+    <text x="390" y="269" font-size="11" fill="#3d9a63">两种模式配置独立共存，可同时保留</text>
   </g>
 
   <!-- 外面 -->
