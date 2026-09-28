@@ -19,13 +19,14 @@ Hana 跑在你自己的电脑上，服务只监听本机端口——出了家门
 
 | 想做的事 | 在面板里 |
 |---|---|
-| 在外面用浏览器连回家里的 Hana | 启动隧道 → 复制公网地址 → 手机浏览器打开（入口自动带 `/pad/`） |
-| 装好 cftunnel 与两个引擎 | 「安装与引擎」板块：检查更新 / 一键升级 / 引擎预装修复 |
-| 临时把某个端口分享给别人看 | 「临时分享」填端口，一键起 `trycloudflare` 地址 |
-| 排查"显示在跑但访问不了" | 「链路诊断」逐段给出服务器 / 本地 / 远程端口通不通、延迟多少 |
-| 穿透多个服务 | 「穿透路由」加规则，一条隧道带多端口 |
-| 让隧道比 Hana 活得久 | 「注册为系统服务」，Hana 关了也不断 |
-| 直接在对话里操作 | 已注册 `remote_access_status / control / diagnose / install / check_update / extra` 六个工具 |
+| 在外面用浏览器连回家里的 Hana | 「总览」启动隧道 → 复制公网地址 → 手机浏览器打开（入口自动带 `/pad/`） |
+| 装好 cftunnel 与两个引擎 | 「安装」标签：检查更新 / 一键升级 / 引擎预装修复 |
+| 用 Cloud 模式（Cloudflare）穿透 | 「隧道」标签：填 API 令牌 + 账户 ID → 配置认证 → 创建隧道 → 按域名加路由 |
+| 用 Relay 模式（自建 frp）穿透 | 「隧道」标签：填中继服务器 → 加规则（TCP/UDP） |
+| 临时把某个端口分享给别人看 | 「分享」标签：填端口，可加终端二维码 / Telegram 分享 |
+| 排查"显示在跑但访问不了" | 「诊断」标签：Relay 链路诊断、Cloud 诊断、日志 |
+| 让隧道比 Hana 活得久 | 「隧道」标签：注册系统服务 + 随 Hana 自启动开关 |
+| 直接在对话里操作 | 六个工具：`remote_access_status / control / diagnose / install / check_update / extra` |
 
 ## 与官方能力的一致性
 
@@ -64,9 +65,17 @@ cftunnel 自己的配置在 `~/.cftunnel/config.yml`，Cloud 段与 `relay` 段*
 
 ![管理面板：状态、启停、临时分享、路由、诊断、自启动](docs/panel.png)
 
-## 两种模式怎么选
+## 面板分五个标签
 
-> 官方口径：**两种模式配置独立共存**，可同时配好、分别启停，不是二选一。（配置文件 `~/.cftunnel/config.yml` 里 `auth/tunnel/routes` 与 `relay` 两段互不影响。）
+| 标签 | 装什么 |
+|---|---|
+| **总览** | 状态徽章、启停、公网地址（复制/打开/分享）——最常看的一屏 |
+| **隧道** | 模式选择、Relay 与 Cloud 两套配置、路由/规则管理、系统服务、自启动 |
+| **分享** | 临时分享（含协议、二维码、Telegram）、场景模板、端口记录 |
+| **安装** | 管家 cftunnel 的安装/更新/重装/卸载 + 引擎预装修复 |
+| **诊断** | Relay 链路诊断、Cloud 诊断、隧道日志 |
+
+> 「隧道」标签里 Cloud 与 Relay 是**两套独立配置**：都填好也可以，启停时按当前选择的模式走。
 
 | | Cloud（Cloudflare） | Relay（自建 frp） |
 |---|---|---|
@@ -95,9 +104,20 @@ remote-access/
 ```
 
 - 校验：`node <hana-app-creator>/scripts/validate_app.mjs --dir remote-access`（0 错误）
-- 单测：`node tests/core.test.mjs`（38 项通过，样例取自 cftunnel 0.8.1 与 GitHub 发布的真实输出）
+- 单测：`node tests/core.test.mjs`（46 项通过，样例取自 cftunnel 0.8.1 与 GitHub 发布的真实输出）
 
 ## 更新内容
+
+### v0.4.0
+- **补齐 Cloud 模式**（此前只做了个模式开关，配置压根没做）：
+  - 认证：`init --token --account`（令牌不保存，仅本次传入）
+  - 隧道：`create <名称>`
+  - 路由：`add <名称> <端口> --domain <域名>`、`remove`
+  - 诊断：`diagnose --json`（cloudflared 状态 + Cloudflare API 可达性）
+- **面板改为五标签布局**（总览 / 隧道 / 分享 / 安装 / 诊断），解决内容拥挤
+- 修正 `list` 命令映射：官方 `cftunnel list` 是「列出所有路由和规则」（分节解析），`relay list` 才是规则列表
+- 新增凭证脱敏：`--token/--pass/--auth` 后的值在回显、日志、工具返回值中一律 `***`
+- 清理：收窄 core 导出面（50 → 42）；标注三条未接入的工具函数
 
 ### v0.3.0
 - **全面对齐官方文档**（[qingchencloud.github.io/cftunnel](https://qingchencloud.github.io/cftunnel/)）：

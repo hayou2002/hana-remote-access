@@ -32,6 +32,9 @@ import {
   extractDownloadUrl,
   parseHelpCommands,
   featureAvailability,
+  parseListOutput,
+  parseDiagnoseJson,
+  redactSecrets,
 } from "../remote-access/lib/cftunnel-core.js";
 
 let pass = 0;
@@ -380,6 +383,89 @@ Flags:`;
 t("能力探测失败（空）不应误判", () => {
   const f = featureAvailability(parseHelpCommands(""));
   assert.equal(f.known, false);
+});
+
+console.log("\n-- Cloud 模式（官方命令）--");
+
+t("list 修正为 Cloud 路由列表，relayList 才是规则", () => {
+  assert.deepEqual(buildCommand("list").argv, ["list"]);
+  assert.deepEqual(buildCommand("relayList").argv, ["relay", "list"]);
+});
+
+t("cloudInit / create / add / remove 按官方参数", () => {
+  assert.deepEqual(buildCommand("cloudInit", { token: "tk", account: "acc" }).argv, ["init", "--token", "tk", "--account", "acc"]);
+  assert.deepEqual(buildCommand("cloudInit", { token: "tk" }).argv, ["init", "--token", "tk"]);
+  assert.ok(buildCommand("cloudInit", {}).error);
+  assert.deepEqual(buildCommand("cloudCreate", { name: "my-tunnel" }).argv, ["create", "my-tunnel"]);
+  assert.ok(buildCommand("cloudCreate", {}).error);
+  assert.deepEqual(buildCommand("cloudAdd", { name: "myapp", port: 3000, domain: "app.example.com" }).argv, ["add", "myapp", "3000", "--domain", "app.example.com"]);
+  assert.deepEqual(buildCommand("cloudAdd", { name: "myapp", port: 3000 }).argv, ["add", "myapp", "3000"]);
+  assert.ok(buildCommand("cloudAdd", { name: "x" }).error);
+  assert.deepEqual(buildCommand("cloudRemove", { name: "myapp" }).argv, ["remove", "myapp"]);
+  assert.ok(buildCommand("cloudRemove", {}).error);
+});
+
+t("diagnose 支持 --json（官方）", () => {
+  assert.deepEqual(buildCommand("diagnose").argv, ["diagnose"]);
+  assert.deepEqual(buildCommand("diagnose", { json: true }).argv, ["diagnose", "--json"]);
+});
+
+t("解析 list 分节输出（真实样例：Relay 规则段）", () => {
+  const sample = `Relay 规则:
+名称      协议    本地端口      远程端口      域名
+----    ----  --------  --------  ----
+web-demo  tcp   8080     8080     -`;
+  const parsed = parseListOutput(sample);
+  assert.equal(parsed.relayRules.length, 1);
+  assert.equal(parsed.relayRules[0].name, "web-demo");
+  assert.equal(parsed.relayRules[0].localPort, 8080);
+  assert.equal(parsed.cloudRoutes.length, 0);
+  assert.equal(parsed.sections.length, 1);
+});
+
+t("解析 list 分节输出（含 Cloud 路由段）", () => {
+  const sample = `Cloud 路由:
+名称    本地端口      域名
+----  --------  ----------------
+myapp  3000      app.example.com
+
+Relay 规则:
+名称  协议  本地端口  远程端口  域名
+---- ---- -------- -------- ----
+ssh  tcp  22       6022     -`;
+  const parsed = parseListOutput(sample);
+  assert.equal(parsed.cloudRoutes.length, 1);
+  assert.equal(parsed.cloudRoutes[0].name, "myapp");
+  assert.equal(parsed.relayRules.length, 1);
+  assert.equal(parsed.relayRules[0].name, "ssh");
+});
+
+t("解析 diagnose --json（真实样例）", () => {
+  const sample = `{
+  "cloudflared": { "installed": true, "path": "C:/x/cloudflared.exe", "version": "cloudflared version 2026.9.3", "running": false },
+  "api": { "reachable": true, "latency_ms": 776 },
+  "routes": [], "total": 0, "passed": 0, "failed": 0
+}`;
+  const d = parseDiagnoseJson(sample);
+  assert.equal(d.cloudflared.installed, true);
+  assert.equal(d.cloudflared.running, false);
+  assert.equal(d.api.reachable, true);
+  assert.equal(d.api.latencyMs, 776);
+  assert.deepEqual(d.routes, []);
+});
+
+t("diagnose 解析异常不崩", () => {
+  assert.equal(parseDiagnoseJson("not json").cloudflared.installed, false);
+  assert.deepEqual(parseListOutput("").cloudRoutes, []);
+});
+
+t("凭证参数回显必须脱敏", () => {
+  assert.equal(redactSecrets(["cftunnel", "init", "--token", "SECRET123", "--account", "acc"]), "cftunnel init --token *** --account acc");
+  assert.equal(redactSecrets(["cftunnel", "relay", "init", "--server", "1.2.3.4:7000", "--token", "abc"]), "cftunnel relay init --server 1.2.3.4:7000 --token ***");
+  assert.equal(redactSecrets(["cftunnel", "add", "x", "3000", "--auth", "u:p"]), "cftunnel add x 3000 --auth ***");
+  assert.equal(redactSecrets(["cftunnel", "status"]), "cftunnel status");
+  assert.equal(redactSecrets(["cftunnel", "--token"]), "cftunnel --token");
+  assert.equal(redactSecrets(null), "");
 });
 
 console.log(`\n${pass} 项通过${process.exitCode ? "，有失败" : "，全部通过"}`);

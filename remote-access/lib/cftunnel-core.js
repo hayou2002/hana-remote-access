@@ -20,7 +20,7 @@ const PROXY_ENV_KEYS = [
 ];
 
 /** cftunnel 官方仓库与文档。 */
-export const CFTUNNEL_REPO = "qingchencloud/cftunnel";
+const CFTUNNEL_REPO = "qingchencloud/cftunnel";
 export const CFTUNNEL_DOC = "https://qingchencloud.github.io/cftunnel/";
 export const CFTUNNEL_RELEASES = "https://github.com/qingchencloud/cftunnel/releases/latest";
 
@@ -121,6 +121,62 @@ export function tailLines(text, maxLines = 200) {
 }
 
 // ---------------------------------------------------------------- 解析
+
+/**
+ * 解析 `cftunnel list` 的分节输出（官方：列出所有路由和规则）。
+ * 真实样例形状：
+ *   Relay 规则:
+ *   名称      协议    本地端口      远程端口      域名
+ *   ----    ----  --------  --------  ----
+ *   web-demo  tcp   8080     8080     -
+ * 按 “xxx:” 小节拆开，分别归为 cloudRoutes / relayRules。
+ */
+export function parseListOutput(text) {
+  const lines = String(text ?? "").replace(/\r/g, "").split("\n");
+  const out = { cloudRoutes: [], relayRules: [], sections: [] };
+  let section = null;
+  let buffer = [];
+  const flush = () => {
+    if (!buffer.length) return;
+    const rows = parseRouteTable(buffer.join("\n"));
+    const key = (section || "").toLowerCase();
+    if (/cloud|路由/.test(key)) out.cloudRoutes.push(...rows);
+    else out.relayRules.push(...rows);
+    out.sections.push({ title: section, rows });
+    buffer = [];
+  };
+  for (const raw of lines) {
+    const line = raw.trimEnd();
+    const m = line.match(/^\s*([\u4e00-\u9fa5A-Za-z][\u4e00-\u9fa5A-Za-z0-9 /-]*):\s*$/);
+    if (m) { flush(); section = m[1].trim(); continue; }
+    if (!line.trim()) continue;
+    buffer.push(line);
+  }
+  flush();
+  return out;
+}
+
+/**
+ * 解析 `diagnose --json` 的输出（Cloud 模式链路诊断）。
+ * 真实样例：{ cloudflared:{installed,path,version,running}, api:{reachable,latency_ms}, routes:[], total, passed, failed }
+ */
+export function parseDiagnoseJson(json) {
+  const d = typeof json === "string" ? safeJson(json) : json || {};
+  const cf = d.cloudflared || {};
+  return {
+    cloudflared: {
+      installed: !!cf.installed,
+      path: cf.path ?? null,
+      version: cf.version ?? null,
+      running: !!cf.running,
+    },
+    api: { reachable: !!d.api?.reachable, latencyMs: Number.isFinite(d.api?.latency_ms) ? d.api.latency_ms : null },
+    routes: Array.isArray(d.routes) ? d.routes : [],
+    total: Number.isFinite(d.total) ? d.total : null,
+    passed: Number.isFinite(d.passed) ? d.passed : null,
+    failed: Number.isFinite(d.failed) ? d.failed : null,
+  };
+}
 
 /**
  * 解析 cftunnel 的中文表格输出（`relay list`、`list`）。
@@ -283,6 +339,8 @@ export function buildCommand(action, params = {}) {
     case "status":
       return { argv: ["status", "--json"] };
     case "list":
+      return { argv: ["list"] };
+    case "relayList":
       return { argv: ["relay", "list"] };
     case "up":
       return params.mode === "cloud" ? { argv: ["up"] } : { argv: ["relay", "up"] };
@@ -346,7 +404,36 @@ export function buildCommand(action, params = {}) {
     case "check":
       return { argv: ["relay", "check", "--json"] };
     case "diagnose":
-      return { argv: ["diagnose"] };
+      return { argv: params.json ? ["diagnose", "--json"] : ["diagnose"] };
+    case "relayList":
+      return { argv: ["relay", "list"] };
+    case "cloudInit": {
+      const token = str(params.token);
+      if (!token) return { error: "缺少 Cloudflare API 令牌" };
+      const argv = ["init", "--token", token];
+      if (str(params.account)) argv.push("--account", str(params.account));
+      return { argv };
+    }
+    case "cloudCreate": {
+      const name = str(params.name);
+      if (!name) return { error: "缺少隧道名称" };
+      return { argv: ["create", name] };
+    }
+    case "cloudAdd": {
+      const name = str(params.name);
+      const p = toPort(params.port);
+      if (!name) return { error: "缺少路由名称" };
+      if (!p) return { error: "缺少本地端口" };
+      const argv = ["add", name, String(p)];
+      if (str(params.domain)) argv.push("--domain", str(params.domain));
+      if (str(params.auth)) argv.push("--auth", str(params.auth));
+      return { argv };
+    }
+    case "cloudRemove": {
+      const name = str(params.name);
+      if (!name) return { error: "缺少路由名称" };
+      return { argv: ["remove", name] };
+    }
     case "installService":
       return { argv: params.mode === "cloud" ? ["install"] : ["relay", "install"] };
     case "uninstallService":
@@ -400,7 +487,7 @@ export function parseHelpCommands(helpText) {
 /**
  * 界面功能 → 所需命令。用于按实际能力置灰按钮。
  */
-export const FEATURE_REQUIREMENTS = {
+const FEATURE_REQUIREMENTS = {
   quick: ["quick"],
   share: ["share"],
   preset: ["preset"],
@@ -425,7 +512,7 @@ export function featureAvailability(commands) {
 
 /** GitHub Releases 接口与下载页（本 App 不携带引擎二进制，只负责编排下载）。 */
 export const LATEST_RELEASE_API = `https://api.github.com/repos/${CFTUNNEL_REPO}/releases/latest`;
-export const RELEASE_DOWNLOAD_BASE = `https://github.com/${CFTUNNEL_REPO}/releases/download/`;
+const RELEASE_DOWNLOAD_BASE = `https://github.com/${CFTUNNEL_REPO}/releases/download/`;
 
 /**
  * 下载加速候选（顺序按实测调整：2026-09 实测 ghfast.top 不可用，已移到最后）。
@@ -557,7 +644,7 @@ export function frpDownloadUrl(version, platform = process.platform, arch = proc
 }
 
 /** cloudflared 资产名。 */
-export function cloudflaredAssetName(platform = process.platform, arch = process.arch) {
+function cloudflaredAssetName(platform = process.platform, arch = process.arch) {
   const os = { win32: "windows", darwin: "darwin", linux: "linux" }[platform];
   const cpu = { x64: "amd64", arm64: "arm64" }[arch];
   if (!os || !cpu) return null;
@@ -588,11 +675,34 @@ export function cftunnelLatestDownloadUrl(platform = process.platform, arch = pr
   return asset ? `${RELEASE_DOWNLOAD_BASE}latest/download/${asset}` : null;
 }
 
+// ---------------------------------------------------------------- 脱敏
+
+/** 需要遮蔽后续值的参数（凭证类）。 */
+const SECRET_FLAGS = new Set(["--token", "--pass", "--password", "--auth", "--secret"]);
+
+/**
+ * 命令行回显脱敏：凭证参数后面的值不得出现在返回值、日志或模型上下文里。
+ * 纯函数，可单测。
+ */
+export function redactSecrets(argv) {
+  const arr = Array.isArray(argv) ? argv : [];
+  const out = [];
+  for (let i = 0; i < arr.length; i += 1) {
+    out.push(arr[i]);
+    if (SECRET_FLAGS.has(arr[i]) && i + 1 < arr.length) {
+      out.push("***");
+      i += 1;
+    }
+  }
+  return out.join(" ");
+}
+
 // ---------------------------------------------------------------- 危险动作
 
 /** 需要二次确认的动作（不可逆或影响外部）。 */
 export const DANGEROUS_ACTIONS = new Set([
   "relayRemove",
+  "cloudRemove",
   "destroy",
   "reset",
   "uninstallService",
@@ -622,4 +732,9 @@ export const ACTION_LABELS = {
   presetList: "查看模板",
   history: "端口记录",
   historyClear: "清空端口记录",
+  relayList: "查看规则",
+  cloudInit: "配置 Cloudflare 认证",
+  cloudCreate: "创建隧道",
+  cloudAdd: "添加 Cloud 路由",
+  cloudRemove: "删除 Cloud 路由",
 };

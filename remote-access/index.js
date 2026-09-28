@@ -46,11 +46,14 @@ import {
   cftunnelLatestDownloadUrl,
   parseHelpCommands,
   featureAvailability,
+  parseListOutput,
+  parseDiagnoseJson,
+  redactSecrets,
 } from "./lib/cftunnel-core.js";
 
 const execFileAsync = promisify(execFile);
 
-const VERSION = "0.3.0";
+const VERSION = "0.4.0";
 
 const TIMEOUT = {
   probe: 15_000,
@@ -299,6 +302,23 @@ export default defineApp(async (sdk) => {
   }
 
   /**
+   * Cloud 模式配置状态（不存令牌，只回“配了没”与可公开的账户/隧道名）。
+   * 令牌本身只在你点击那一下传给 cftunnel，App 不落盘。
+   */
+  async function cloudState() {
+    const env = await readEnvironment();
+    return {
+      configured: !!env.cloud?.configured,
+      running: !!env.cloud?.running,
+      tunnelId: env.cloud?.tunnelId ?? null,
+      account: config.cloudAccount || "",
+      tunnelName: config.cloudTunnelName || "",
+      routes: env.cloud?.routes ?? [],
+      hasToken: false, // 令牌从不回显；是否已配看 configured
+    };
+  }
+
+  /**
    * 探测引擎二进制是否存在。
    * ~/.cftunnel/bin 在 dataDir 之外——裸 fs 会被沙箱拒绝（且静默），
    * 故走 ResourceIO.stat，否则会永远误报“缺引擎”。
@@ -381,6 +401,7 @@ export default defineApp(async (sdk) => {
       ports: { hana: hanaPort, configured: config.localPort, effective: localPort },
       publicAddress: publicAddressFor(env),
       engines: await engineStatus(),
+      cloud: await cloudState(),
       install: { installDir: cftunnelInstallDir(process.env, process.platform) },
       capabilities: (await capabilities()).features,
       commands: (await capabilities()).commands,
@@ -446,7 +467,7 @@ export default defineApp(async (sdk) => {
       ok: result.ok,
       action,
       label: ACTION_LABELS[action] || action,
-      argv: [await resolveCf(), ...argv].join(" "),
+      argv: redactSecrets([await resolveCf(), ...argv]),
       stdout: result.stdout || "",
       stderr: result.stderr || "",
       error: result.ok ? null : describe(result),
@@ -460,7 +481,17 @@ export default defineApp(async (sdk) => {
     if (action === "check" && result.ok) {
       out.diagnosis = parseCheckJson(result.stdout);
     }
+    // diagnose --json（Cloud 模式链路诊断）
+    if (action === "diagnose" && result.ok) {
+      out.cloudDiagnosis = parseDiagnoseJson(result.stdout);
+    }
+    // list（官方：列出所有路由和规则，分节）
     if (action === "list" && result.ok) {
+      const parsed = parseListOutput(result.stdout);
+      out.cloudRoutes = parsed.cloudRoutes;
+      out.relayRules = parsed.relayRules;
+    }
+    if (action === "relayList" && result.ok) {
       out.routes = parseRouteTable(result.stdout);
     }
     return out;
