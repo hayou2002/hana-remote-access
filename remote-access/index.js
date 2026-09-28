@@ -51,11 +51,12 @@ import {
   redactSecrets,
   healDecision,
   tunnelHealthFromCheck,
+  isDeepCheckTick,
 } from "./lib/cftunnel-core.js";
 
 const execFileAsync = promisify(execFile);
 
-const VERSION = "0.4.1";
+const VERSION = "0.4.2";
 
 const TIMEOUT = {
   probe: 15_000,
@@ -423,7 +424,7 @@ export default defineApp(async (sdk) => {
       capabilities: (await capabilities()).features,
       commands: (await capabilities()).commands,
       job: jobSnapshot(),
-      health: { autoHeal: !!config.autoHeal, guarding: desiredRunning, failures: watchdogFailures, ticks: watchdogTicks, alive: watchdogLastAlive },
+      health: { autoHeal: !!config.autoHeal, guarding: desiredRunning, failures: watchdogFailures, ticks: watchdogTicks, alive: watchdogLastAlive, cheap: watchdogLastCheap },
       statusError: env.statusError,
     };
   }
@@ -876,12 +877,14 @@ export default defineApp(async (sdk) => {
    */
   const WATCHDOG_INTERVAL = 60_000;
   const WATCHDOG_MAX_FAILS = 5;
+  const WATCHDOG_DEEP_EVERY = 10; // 每 N 次心跳才做一次全链路体检，其余只做廉价探活
   let desiredRunning = false; // 用户意图：隧道是否「应该」在跑
   let watchdogTimer = null;
   let watchdogTickRunning = false;
   let watchdogFailures = 0;
   let watchdogTicks = 0; // 心跳计数（供 /status 观察定时器是否在跑）
   let watchdogLastAlive = null; // 上一次巡检看到的存活值（true/false/null）
+  let watchdogLastCheap = null; // 上一次巡检是廉价探活还是全链路
 
   /**
    * 当前模式下隧道是否真在跑。
@@ -893,6 +896,29 @@ export default defineApp(async (sdk) => {
     const real = await cf(["relay", "check", "--json"], { timeoutMs: TIMEOUT.status });
     if (!real.ok) return null; // 查不到实况就不妄动
     return tunnelHealthFromCheck(parseCheckJson(real.stdout)) === "down" ? false : true;
+  }
+
+  /**
+   * 廉价探活：只看 frpc 的 pid 还在不在（不拉进程、不走网络，近乎零成本）。
+   * 依据是 cftunnel 自己写的 ~/.cftunnel/frpc.pid。
+   * 返回 true=进程在 / false=不在 / null=判不了（交给全链路深查）。
+   */
+  async function frpcPidAlive() {
+    if (config.mode !== "relay") return null;
+    try {
+      const pidFile = path.join(cftunnelConfigDir(process.env, process.platform), "frpc.pid");
+      const raw = await sdk.resources.read(refOf(pidFile));
+      const pid = Number.parseInt(decodeResourceText(raw).trim(), 10);
+      if (!Number.isFinite(pid) || pid <= 0) return false;
+      try {
+        process.kill(pid, 0); // 信号 0：只探进程是否存在，不真的发信号
+        return true;
+      } catch {
+        return false;
+      }
+    } catch {
+      return false; // pid 文件读不到，视为没在跑
+    }
   }
 
   /** 记下用户意图：up 成功 = 应该运行，down 成功 = 不该运行。 */
@@ -920,8 +946,15 @@ export default defineApp(async (sdk) => {
     if (watchdogTickRunning) return;
     watchdogTickRunning = true;
     try {
-      const alive = desiredRunning && config.autoHeal ? await tunnelActuallyRunning() : null;
+      const deep = isDeepCheckTick(watchdogTicks, WATCHDOG_DEEP_EVERY);
+      let alive = null;
+      if (desiredRunning && config.autoHeal) {
+        // 全链路才走网络；平时只探 pid，省资源
+        alive = deep ? await tunnelActuallyRunning() : await frpcPidAlive();
+        if (alive === null) alive = await tunnelActuallyRunning(); // 廉价探活判不了就退回全链路
+      }
       watchdogLastAlive = alive;
+      watchdogLastCheap = !deep;
       const decision = healDecision({
         desired: desiredRunning,
         autoHeal: config.autoHeal,

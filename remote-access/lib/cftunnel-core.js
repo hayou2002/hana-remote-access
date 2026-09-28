@@ -734,6 +734,18 @@ export function tunnelHealthFromCheck(parsed) {
   return "unknown";
 }
 
+/**
+ * 看门狗节流（纯逻辑，便于单测）：
+ * 大部分心跳只做「廉价探活」（看 pid 还在不在，零成本）；
+ * 每隔 deepEvery 次才做一次全链路体检（真去测规则通不通）。
+ * 既省资源，又不丢「进程还在但已断连」这种隐性故障。
+ */
+export function isDeepCheckTick(tick, deepEvery = 10) {
+  if (!Number.isFinite(tick) || tick <= 0) return true; // 第一轮总是深查
+  if (!Number.isFinite(deepEvery) || deepEvery <= 0) return true;
+  return tick % deepEvery === 0;
+}
+
 // ---------------------------------------------------------------- 危险动作
 
 /** 需要二次确认的动作（不可逆或影响外部）。 */

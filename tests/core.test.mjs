@@ -37,6 +37,7 @@ import {
   redactSecrets,
   healDecision,
   tunnelHealthFromCheck,
+  isDeepCheckTick,
 } from "../remote-access/lib/cftunnel-core.js";
 
 let pass = 0;
@@ -498,6 +499,16 @@ t("隧道健康判定：pid 锁陈旧也能识破", () => {
   // 解析不出
   assert.equal(tunnelHealthFromCheck(null), "unknown");
   assert.equal(tunnelHealthFromCheck("x"), "unknown");
+});
+
+t("自愈节流：平时廉价、每 N 次全链路", () => {
+  assert.equal(isDeepCheckTick(10, 10), true);
+  assert.equal(isDeepCheckTick(20, 10), true);
+  assert.equal(isDeepCheckTick(1, 10), false);
+  assert.equal(isDeepCheckTick(11, 10), false);
+  assert.equal(isDeepCheckTick(0, 10), true);
+  assert.equal(isDeepCheckTick(NaN, 10), true);
+  assert.equal(isDeepCheckTick(5, 0), true);
 });
 
 console.log(`\n${pass} 项通过${process.exitCode ? "，有失败" : "，全部通过"}`);
