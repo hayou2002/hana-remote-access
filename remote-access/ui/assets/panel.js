@@ -34,7 +34,7 @@ const ui = {
   routesMode: el("routes-mode"), routesList: el("routes-list"),
   relayRuleForm: el("relay-rule-form"), routeName: el("route-name"), routeLocal: el("route-local"), routeRemote: el("route-remote"), routeProto: el("route-proto"), addRule: el("btn-add-rule"),
   cloudRouteForm: el("cloud-route-form"), cloudRouteName: el("cloud-route-name"), cloudRoutePort: el("cloud-route-port"), cloudRouteDomain: el("cloud-route-domain"), cloudAddRoute: el("btn-cloud-add-route"),
-  svcInstall: el("btn-svc-install"), svcUninstall: el("btn-svc-uninstall"), autoStart: el("auto-start"),
+  svcInstall: el("btn-svc-install"), svcUninstall: el("btn-svc-uninstall"), autoStart: el("auto-start"), autoHeal: el("auto-heal"),
   destroy: el("btn-destroy"), reset: el("btn-reset"),
   // 分享
   quickPort: el("quick-port"), quickRelay: el("quick-relay"), quickProto: el("quick-proto"), quickProtoWrap: el("quick-proto-wrap"),
@@ -254,6 +254,8 @@ function render() {
 
   // 自启动
   if (s) ui.autoStart.checked = !!s.config?.autoStart;
+  // 掉线自愈
+  if (s) ui.autoHeal.checked = !!s.config?.autoHeal;
 
   // 分享
   ui.quickResult.classList.toggle("hidden", !state.quickUrl);
@@ -432,6 +434,12 @@ ui.autoStart.addEventListener("change", async () => {
   const autoStart = ui.autoStart.checked;
   const { data } = await apiPost(ROUTE.config, { config: { autoStart } });
   if (data?.ok) setLog(`已${autoStart ? "开启" : "关闭"}随 Hana 自启动。`);
+  await loadStatus();
+});
+ui.autoHeal.addEventListener("change", async () => {
+  const autoHeal = ui.autoHeal.checked;
+  const { data } = await apiPost(ROUTE.config, { config: { autoHeal } });
+  if (data?.ok) setLog(`已${autoHeal ? "开启" : "关闭"}掉线自动重连。`);
   await loadStatus();
 });
 ui.destroy.addEventListener("click", () => runAction("destroy", { force: false }, { confirmMsg: "删除 Cloud 隧道并清理它的全部 DNS 记录？不可撤销。继续？" }));

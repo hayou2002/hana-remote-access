@@ -14,6 +14,7 @@ const ui = {
   localPort: el("localPort"),
   portHint: el("port-hint"),
   autoStart: el("autoStart"),
+  autoHeal: el("autoHeal"),
   authEnabled: el("authEnabled"),
   save: el("save"),
   reload: el("reload"),
@@ -54,6 +55,7 @@ async function load() {
   ui.token.placeholder = hasToken ? "已保存（留空保持不变）" : "留空则不变；服务器未设鉴权可不填";
   ui.localPort.value = cfg.localPort != null ? String(cfg.localPort) : "";
   ui.autoStart.checked = cfg.autoStart !== false;
+  ui.autoHeal.checked = cfg.autoHeal !== false;
   ui.authEnabled.checked = !!cfg.authEnabled;
   renderMode();
 
@@ -73,6 +75,7 @@ async function save() {
     server: ui.server.value.trim(),
     localPort: ui.localPort.value === "" ? null : Number.parseInt(ui.localPort.value, 10),
     autoStart: ui.autoStart.checked,
+    autoHeal: ui.autoHeal.checked,
     authEnabled: ui.authEnabled.checked,
   };
   // token：留空 = 保持不变；填了 = 更新

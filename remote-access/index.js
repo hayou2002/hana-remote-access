@@ -49,11 +49,13 @@ import {
   parseListOutput,
   parseDiagnoseJson,
   redactSecrets,
+  healDecision,
+  tunnelHealthFromCheck,
 } from "./lib/cftunnel-core.js";
 
 const execFileAsync = promisify(execFile);
 
-const VERSION = "0.4.0";
+const VERSION = "0.4.1";
 
 const TIMEOUT = {
   probe: 15_000,
@@ -104,6 +106,8 @@ const DEFAULT_CONFIG = {
   server: "", // Relay 模式：中继服务器 IP:端口
   token: "", // Relay 模式：中继鉴权密钥
   autoStart: true, // 随 Hana 启动自动拉起隧道
+  autoHeal: true, // 运行期掉线自动重连（第二层：看门狗）
+  hasToken: false, // 仅记「用户是否配过中继令牌」，令牌本身不落盘
   authEnabled: false, // 临时分享是否带密码
 };
 
@@ -161,7 +165,16 @@ export default defineApp(async (sdk) => {
     return config;
   }
   async function saveConfig(patch) {
-    config = { ...config, ...(patch || {}) };
+    const incoming = { ...(patch || {}) };
+    // 安全：中继令牌不落入 App 存储（只存内存，供本次 relay init 使用）。
+    // 真正的持久副本在 cftunnel 自己的 ~/.cftunnel/config.yml 里，够用且单一来源。
+    const typedToken = typeof incoming.token === "string" && incoming.token && incoming.token !== "***" ? incoming.token : null;
+    delete incoming.token;
+    config = { ...config, ...incoming };
+    if (typedToken) {
+      config.token = typedToken; // 仅内存
+      config.hasToken = true; // 仅记一个布尔，供界面回显
+    }
     // 归一化：空串转 null、端口转数字
     if (config.localPort !== null && config.localPort !== "") {
       const n = Number.parseInt(config.localPort, 10);
@@ -169,7 +182,8 @@ export default defineApp(async (sdk) => {
     } else {
       config.localPort = null;
     }
-    await sdk.storage.global.set("config", config);
+    const { token: _memToken, ...persisted } = config; // 剥离令牌后再落盘
+    await sdk.storage.global.set("config", persisted);
     return config;
   }
 
@@ -249,10 +263,14 @@ export default defineApp(async (sdk) => {
     }
   }
 
-  /** 经 relay check 确认 frpc 是否真在运行（不信 pid 文件）。 */
+  /**
+   * 经 relay check 确认 frpc 是否真的在跑并通着（不信 pid 文件——进程死了锁还在会误报）。
+   * 与 tunnelActuallyRunning 用同一套判定，保证「掉线检测」与「陈旧锁识别」口径一致。
+   */
   async function frpcActuallyRunning() {
     const real = await cf(["relay", "check", "--json"], { timeoutMs: TIMEOUT.status });
-    return real.ok ? parseCheckJson(real.stdout).frpcRunning : null;
+    if (!real.ok) return null;
+    return tunnelHealthFromCheck(parseCheckJson(real.stdout)) !== "down";
   }
 
   // ---------------------------------------------------------------- 端口探测
@@ -393,10 +411,9 @@ export default defineApp(async (sdk) => {
         releases: CFTUNNEL_RELEASES,
         configDir: cftunnelConfigDir(process.env, process.platform),
       },
-      config: { ...config, token: config.token ? "***" : "" },
+      config: { ...config, token: config.token || config.hasToken ? "***" : "" },
       mode: config.mode,
       active: { running: !!active?.running, server: active?.server ?? null },
-      cloud: env.cloud,
       relay: env.relay,
       ports: { hana: hanaPort, configured: config.localPort, effective: localPort },
       publicAddress: publicAddressFor(env),
@@ -406,6 +423,7 @@ export default defineApp(async (sdk) => {
       capabilities: (await capabilities()).features,
       commands: (await capabilities()).commands,
       job: jobSnapshot(),
+      health: { autoHeal: !!config.autoHeal, guarding: desiredRunning, failures: watchdogFailures, ticks: watchdogTicks, alive: watchdogLastAlive },
       statusError: env.statusError,
     };
   }
@@ -834,6 +852,9 @@ export default defineApp(async (sdk) => {
       try {
         const res = await perform("up", {});
         if (res.ok) {
+          desiredRunning = true;
+          watchdogFailures = 0;
+          startWatchdog();
           await sdk.notifications.show({ title: "远程访问", body: "隧道已随 Hana 自动启动。" });
         } else {
           await sdk.notifications.show({ title: "远程访问", body: `隧道自动启动失败：${res.error || "未知原因"}` });
@@ -843,6 +864,98 @@ export default defineApp(async (sdk) => {
       }
     }, 8000);
     if (typeof autoStartTimer.unref === "function") autoStartTimer.unref();
+  }
+
+  // ------------------------------------------------- 掉线自愈（运行期看门狗）
+
+  /**
+   * 第二层自启动：隧道跑起来之后，运行期掉线自动重连。
+   * 与 scheduleAutoStart 的分工——那个负责「Hana 刚启动时拉一次」，
+   * 这个负责「跑着跑着断了，谁替我把它拉回来」。
+   * 只在用户意图为「应该运行」时生效；用户手动停了，看门狗不抢方向盘。
+   */
+  const WATCHDOG_INTERVAL = 60_000;
+  const WATCHDOG_MAX_FAILS = 5;
+  let desiredRunning = false; // 用户意图：隧道是否「应该」在跑
+  let watchdogTimer = null;
+  let watchdogTickRunning = false;
+  let watchdogFailures = 0;
+  let watchdogTicks = 0; // 心跳计数（供 /status 观察定时器是否在跑）
+  let watchdogLastAlive = null; // 上一次巡检看到的存活值（true/false/null）
+
+  /**
+   * 当前模式下隧道是否真在跑。
+   * 坑：cftunnel status/relay check 的 frpc_running 读的是 pid 文件，
+   * 进程已经被杀、pid 文件还在时它会报 true。所以判定要落到「规则是否真的通」。
+   */
+  async function tunnelActuallyRunning() {
+    if (config.mode !== "relay") return !!(await readEnvironment()).cloud.running;
+    const real = await cf(["relay", "check", "--json"], { timeoutMs: TIMEOUT.status });
+    if (!real.ok) return null; // 查不到实况就不妄动
+    return tunnelHealthFromCheck(parseCheckJson(real.stdout)) === "down" ? false : true;
+  }
+
+  /** 记下用户意图：up 成功 = 应该运行，down 成功 = 不该运行。 */
+  function noteIntent(action, ok) {
+    if (!ok) return;
+    if (action === "up") {
+      desiredRunning = true;
+      watchdogFailures = 0;
+      startWatchdog();
+    } else if (action === "down") {
+      desiredRunning = false;
+    }
+  }
+
+  function startWatchdog() {
+    if (watchdogTimer || !config.autoHeal) return;
+    watchdogTimer = setInterval(() => {
+      watchdogTick().catch(() => {});
+    }, WATCHDOG_INTERVAL);
+    if (typeof watchdogTimer.unref === "function") watchdogTimer.unref();
+  }
+
+  async function watchdogTick() {
+    watchdogTicks += 1;
+    if (watchdogTickRunning) return;
+    watchdogTickRunning = true;
+    try {
+      const alive = desiredRunning && config.autoHeal ? await tunnelActuallyRunning() : null;
+      watchdogLastAlive = alive;
+      const decision = healDecision({
+        desired: desiredRunning,
+        autoHeal: config.autoHeal,
+        alive,
+        failures: watchdogFailures,
+        maxFails: WATCHDOG_MAX_FAILS,
+        busy: false,
+      });
+      if (decision === "skip") return;
+      if (decision === "giveup") {
+        desiredRunning = false;
+        pushLog("[自愈] 连续多次失败，已暂停自动重连，请到面板检查。");
+        await sdk.notifications.show({ title: "远程访问", body: "隧道反复重连失败，已暂停自动重连，请打开面板查看。" });
+        return;
+      }
+      // decision === "heal"
+      pushLog("[自愈] 检测到隧道掉线，自动重连中…");
+      const res = await perform("up", {});
+      // 复核：命令报成功不等于真起来了（陈旧 pid 锁会让它假报成功），起来后再看一眼
+      await new Promise((resolve) => setTimeout(resolve, 3000));
+      const aliveNow = res.ok ? await tunnelActuallyRunning() : false;
+      if (aliveNow !== false) {
+        watchdogFailures = 0;
+        pushLog("[自愈] 已重新拉起隧道。");
+        await sdk.notifications.show({ title: "远程访问", body: "隧道掉线，已自动重连。" });
+      } else {
+        watchdogFailures += 1;
+        pushLog(`[自愈] 重连未成功（第 ${watchdogFailures} 次）：${res.error || "frpc 未起来"}`);
+      }
+    } catch (error) {
+      await sdk.logger.warn(`自愈巡检异常：${String(error)}`);
+    } finally {
+      watchdogTickRunning = false;
+    }
   }
 
   // ---------------------------------------------------------------- 工具
@@ -970,6 +1083,7 @@ export default defineApp(async (sdk) => {
         return fail(`本机 cftunnel 不支持 ${need}（需升级到较新版本）。可用 remote_access_install 的 update 动作升级。`);
       }
       const res = await perform(action, { address: args?.address, name: args?.name, qr: !!args?.qr, share: !!args?.share });
+      noteIntent(action, res.ok);
       if (!res.ok) return fail(`${ACTION_LABELS[action] || action}失败（${res.error}）。`, res.stderr || "");
       return text(`${ACTION_LABELS[action] || action}完成。\n${res.stdout || ""}`.trim());
     },
@@ -986,11 +1100,12 @@ export default defineApp(async (sdk) => {
       const params = body?.params && typeof body.params === "object" ? body.params : {};
       if (!action) return c.json({ ok: false, error: "缺少 action" }, 400);
       const res = await perform(action, params);
+      noteIntent(action, res.ok);
       pushLog(`[${ACTION_LABELS[action] || action}] ${res.ok ? "成功" : "失败"} ${res.error || ""}`.trim());
       return c.json(res);
     });
 
-    app.get("/config", async (c) => c.json({ ok: true, config: { ...config, token: config.token ? "***" : "" }, hasToken: !!config.token }));
+    app.get("/config", async (c) => c.json({ ok: true, config: { ...config, token: config.token || config.hasToken ? "***" : "" }, hasToken: !!(config.token || config.hasToken) }));
 
     app.post("/config", async (c) => {
       const body = await c.req.json().catch(() => ({}));
@@ -999,7 +1114,7 @@ export default defineApp(async (sdk) => {
       if (patch.token === "***") delete patch.token;
       const saved = await saveConfig(patch);
       pushLog(`[配置] 已更新：mode=${saved.mode} port=${saved.localPort ?? "自动"} autoStart=${saved.autoStart}`);
-      return c.json({ ok: true, config: { ...saved, token: saved.token ? "***" : "" } });
+      return c.json({ ok: true, config: { ...saved, token: saved.token || saved.hasToken ? "***" : "" } });
     });
 
     app.get("/detect", async (c) => c.json({ ok: true, hanaPort: await detectHanaPort(), cftunnelPath: await resolveCf() }));
@@ -1031,7 +1146,24 @@ export default defineApp(async (sdk) => {
   // ---------------------------------------------------------------- 启动
 
   await loadConfig();
-  await sdk.logger.info(`配置：mode=${config.mode} port=${config.localPort ?? "自动"} autoStart=${config.autoStart}`);
+  await sdk.logger.info(`配置：mode=${config.mode} port=${config.localPort ?? "自动"} autoStart=${config.autoStart} autoHeal=${config.autoHeal}`);
   // 延迟自启动，不阻塞 App 加载
   scheduleAutoStart().catch((error) => sdk.logger.warn(`自启动调度失败：${String(error)}`));
+  // 若隧道在 App 加载前就已在跑（如注册了系统服务），也纳入自愈保护
+  (async () => {
+    if (!config.autoHeal) return;
+    try {
+      const running = await tunnelActuallyRunning();
+      // autoStart 意味着「应该运行」：即使现在没跑（陈旧锁会让状态误报），也纳入守护，让看门狗把它拉回来
+      if (running || config.autoStart) {
+        desiredRunning = true;
+        startWatchdog();
+        await sdk.logger.info(
+          running ? "隧道已在运行，自愈看门狗已启用。" : "隧道未运行，自愈看门狗已启用（将自动拉起）。"
+        );
+      }
+    } catch (error) {
+      await sdk.logger.warn(`自愈初始化跳过：${String(error)}`);
+    }
+  })();
 });

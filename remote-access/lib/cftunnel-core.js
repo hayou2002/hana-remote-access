@@ -697,6 +697,43 @@ export function redactSecrets(argv) {
   return out.join(" ");
 }
 
+// ---------------------------------------------------------------- 掉线自愈
+
+/**
+ * 运行期看门狗的判定（纯逻辑，便于单测）。
+ * 返回：
+ *  - "skip"   不该动（未开自愈 / 用户本就不想让它跑 / 进程还活着 / 上一轮巡检未结束）
+ *  - "heal"   该重连
+ *  - "giveup" 连续失败已达上限，停止自动重连（避免无休止重试刷通知）
+ * 只负责「该不该」，不碰进程——执行留在 App 入口层。
+ */
+export function healDecision({ desired, autoHeal, alive, failures = 0, maxFails = 5, busy = false } = {}) {
+  if (busy) return "skip";
+  if (!desired || !autoHeal) return "skip";
+  if (alive !== false) return "skip"; // alive 为 true/null（不确定）时都不动
+  if (failures >= maxFails) return "giveup";
+  return "heal";
+}
+
+/**
+ * 由 relay check 的结果判定隧道健不健康（纯逻辑，便于单测）。
+ * 重要：不能只看 frpc_running——它读的是 pid 文件，进程死了该文件还在，会误报 true。
+ * 真正可信的是规则连通性：本地端口能到、远端端口能到，才算通。
+ * 返回 "up" | "down" | "unknown"。
+ */
+export function tunnelHealthFromCheck(parsed) {
+  if (!parsed || typeof parsed !== "object") return "unknown";
+  if (parsed.frpcRunning === false) return "down";
+  const passed = Number(parsed.passed);
+  const failed = Number(parsed.failed);
+  // 有失败、且一条都没通 → 判定掉线
+  // （frpc 已死但 pid 文件还在的典型表现：frpcRunning 报 true，但规则全不通）
+  if (Number.isFinite(passed) && Number.isFinite(failed) && failed > 0 && passed === 0) return "down";
+  if (Number.isFinite(passed) && passed > 0) return "up";
+  // 没有规则可判 → 不冤枉它
+  return "unknown";
+}
+
 // ---------------------------------------------------------------- 危险动作
 
 /** 需要二次确认的动作（不可逆或影响外部）。 */

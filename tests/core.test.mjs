@@ -35,6 +35,8 @@ import {
   parseListOutput,
   parseDiagnoseJson,
   redactSecrets,
+  healDecision,
+  tunnelHealthFromCheck,
 } from "../remote-access/lib/cftunnel-core.js";
 
 let pass = 0;
@@ -466,6 +468,36 @@ t("凭证参数回显必须脱敏", () => {
   assert.equal(redactSecrets(["cftunnel", "status"]), "cftunnel status");
   assert.equal(redactSecrets(["cftunnel", "--token"]), "cftunnel --token");
   assert.equal(redactSecrets(null), "");
+});
+
+t("自愈判定：不该动的场景一律 skip", () => {
+  assert.equal(healDecision({ desired: false, autoHeal: true, alive: false }), "skip");
+  assert.equal(healDecision({ desired: true, autoHeal: false, alive: false }), "skip");
+  assert.equal(healDecision({ desired: true, autoHeal: true, alive: true }), "skip");
+  assert.equal(healDecision({ desired: true, autoHeal: true, alive: null }), "skip"); // 实况未知不下手
+  assert.equal(healDecision({ desired: true, autoHeal: true, alive: false, busy: true }), "skip");
+  assert.equal(healDecision(), "skip");
+});
+
+t("自愈判定：真掉线才重连，连续失败到头就放弃", () => {
+  assert.equal(healDecision({ desired: true, autoHeal: true, alive: false, failures: 0 }), "heal");
+  assert.equal(healDecision({ desired: true, autoHeal: true, alive: false, failures: 4, maxFails: 5 }), "heal");
+  assert.equal(healDecision({ desired: true, autoHeal: true, alive: false, failures: 5, maxFails: 5 }), "giveup");
+  assert.equal(healDecision({ desired: true, autoHeal: true, alive: false, failures: 9, maxFails: 5 }), "giveup");
+});
+
+t("隧道健康判定：pid 锁陈旧也能识破", () => {
+  // 真实样本：relay check 的 JSON 没有 total，只有 passed/failed
+  assert.equal(tunnelHealthFromCheck({ frpcRunning: true, passed: 0, failed: 1 }), "down");
+  assert.equal(tunnelHealthFromCheck({ frpcRunning: false, passed: 1, failed: 0 }), "down");
+  // 真通
+  assert.equal(tunnelHealthFromCheck({ frpcRunning: true, passed: 1, failed: 0 }), "up");
+  // 没有规则可判 → 不冤枉
+  assert.equal(tunnelHealthFromCheck({ frpcRunning: true, passed: 0, failed: 0 }), "unknown");
+  assert.equal(tunnelHealthFromCheck({ frpcRunning: true }), "unknown");
+  // 解析不出
+  assert.equal(tunnelHealthFromCheck(null), "unknown");
+  assert.equal(tunnelHealthFromCheck("x"), "unknown");
 });
 
 console.log(`\n${pass} 项通过${process.exitCode ? "，有失败" : "，全部通过"}`);
