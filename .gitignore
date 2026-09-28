@@ -1,0 +1,8 @@
+# 打包中间物（安装 zip 走 GitHub Release，不入仓库）
+dist-extensions/
+*.entry.json
+
+# 本地残留
+*.tmp
+Thumbs.db
+Desktop.ini

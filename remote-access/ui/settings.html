@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>远程访问设置</title>
+  <script>
+    (function () {
+      try {
+        var p = new URLSearchParams(location.search);
+        var href = p.get("hana-css");
+        var appearance = p.get("hana-theme-appearance");
+        if (appearance) {
+          var themed = p.get("hana-palette-" + appearance + "-css");
+          if (themed) href = themed;
+        }
+        if (!href) return;
+        var link = document.createElement("link");
+        link.rel = "stylesheet";
+        link.href = href;
+        link.setAttribute("data-host-theme", "1");
+        document.head.insertBefore(link, document.head.firstChild);
+      } catch (e) {}
+    })();
+  </script>
+  <link rel="stylesheet" href="./assets/panel.css">
+  <link rel="stylesheet" href="./assets/settings.css">
+</head>
+<body>
+  <main class="settings" id="settings" aria-busy="true">
+    <header class="settings__head">
+      <h1>远程访问设置</h1>
+      <p class="muted">配置穿透模式与要暴露的服务。所有项都有合理默认值，不改也能用。</p>
+    </header>
+
+    <section class="card">
+      <h2 class="card__title">穿透模式</h2>
+      <div class="modes" id="modes">
+        <label class="mode">
+          <input type="radio" name="mode" value="relay" />
+          <span class="mode__box">
+            <span class="mode__name">Relay（自建中继）</span>
+            <span class="mode__hint">走自己的公网服务器（frps），支持 TCP/UDP 全协议。</span>
+          </span>
+        </label>
+        <label class="mode">
+          <input type="radio" name="mode" value="cloud" />
+          <span class="mode__box">
+            <span class="mode__name">Cloud（Cloudflare）</span>
+            <span class="mode__hint">免费 HTTP/WS 穿透，自动 TLS，全球 CDN；需 Cloudflare 账号与域名。</span>
+          </span>
+        </label>
+      </div>
+    </section>
+
+    <section class="card" id="sec-relay">
+      <h2 class="card__title">中继服务器（Relay 模式）</h2>
+      <label class="field field--block">
+        <span class="field__label">服务器地址（IP:端口）</span>
+        <input class="input input--full" id="server" type="text" placeholder="如 1.2.3.4:7000" autocomplete="off" />
+      </label>
+      <label class="field field--block">
+        <span class="field__label">鉴权密钥（可选）</span>
+        <input class="input input--full" id="token" type="password" placeholder="留空则不变；服务器未设鉴权可不填" autocomplete="off" />
+      </label>
+    </section>
+
+    <section class="card">
+      <h2 class="card__title">要暴露的服务</h2>
+      <label class="field field--block">
+        <span class="field__label">本地端口</span>
+        <input class="input input--full" id="localPort" type="number" placeholder="留空 = 自动探测 Hana 端口" />
+      </label>
+      <p class="card__hint" id="port-hint">默认暴露 Hana 自己。想穿透别的服务（网页、游戏服务器等），在这里填它的端口。</p>
+    </section>
+
+    <section class="card">
+      <h2 class="card__title">启动行为</h2>
+      <label class="switch">
+        <input type="checkbox" id="autoStart" />
+        <span class="switch__track" aria-hidden="true"><span class="switch__thumb"></span></span>
+        <span class="switch__label">随 Hana 启动时自动拉起隧道</span>
+      </label>
+      <label class="switch">
+        <input type="checkbox" id="authEnabled" />
+        <span class="switch__track" aria-hidden="true"><span class="switch__thumb"></span></span>
+        <span class="switch__label">临时分享时启用密码保护</span>
+      </label>
+    </section>
+
+    <div class="settings__foot">
+      <button class="btn btn--primary" id="save" type="button">保存</button>
+      <button class="btn btn--ghost" id="reload" type="button">重新载入</button>
+      <span class="muted" id="save-hint"></span>
+    </div>
+  </main>
+  <script type="module" src="./assets/settings.js"></script>
+</body>
+</html>

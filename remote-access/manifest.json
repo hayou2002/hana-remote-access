@@ -1,0 +1,33 @@
+{
+  "manifestVersion": 2,
+  "id": "remote-access",
+  "name": "远程访问",
+  "version": "0.1.1",
+  "entry": "index.js",
+  "capabilities": [
+    "app/tools.expose-to-model",
+    "app/process.spawn",
+    "app/notifications.show",
+    "app/resources.read",
+    "app/ui.clipboard-write",
+    "app/ui.open-external"
+  ],
+  "contributes": {
+    "cards": [
+      {
+        "id": "panel",
+        "title": "远程访问管理面板",
+        "description": "内网穿透管理面板：一键把本机服务（默认 Hana）暴露到公网，支持 Cloud 与 Relay 双模式，可查看状态、管理路由、注册开机自启。",
+        "route": "/panel.html",
+        "face": { "image": "assets/cover.svg" }
+      }
+    ],
+    "settings": {
+      "title": "远程访问设置",
+      "ui": { "route": "/settings.html" }
+    }
+  },
+  "icon": "assets/icon.svg",
+  "description": "把内网穿透工具 cftunnel 做成 Hana 面板：一键把本机服务暴露到公网，支持 Cloud（Cloudflare）与 Relay（自建 frp）双模式，可随 Hana 启动自动拉起隧道。",
+  "minAppVersion": "0.1050.9"
+}

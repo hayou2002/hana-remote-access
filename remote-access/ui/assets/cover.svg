@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 360" width="640" height="360">
+  <defs>
+    <linearGradient id="c-bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fdfaf6"/>
+      <stop offset="1" stop-color="#f5ece1"/>
+    </linearGradient>
+    <linearGradient id="c-ring" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#d98a4e"/>
+      <stop offset="1" stop-color="#b0653a"/>
+    </linearGradient>
+  </defs>
+  <rect width="640" height="360" rx="28" fill="url(#c-bg)"/>
+
+  <!-- 左侧：本机（Hana） -->
+  <g transform="translate(96 180)">
+    <rect x="-52" y="-46" width="104" height="76" rx="10" fill="#ffffff" stroke="#e4d8c8" stroke-width="2"/>
+    <rect x="-34" y="-30" width="68" height="44" rx="5" fill="#f6ede2"/>
+    <circle cx="-24" cy="52" r="4" fill="#c9b8a4"/>
+    <circle cx="24" cy="52" r="4" fill="#c9b8a4"/>
+    <text x="0" y="-64" text-anchor="middle" font-family="'Segoe UI','Microsoft YaHei',sans-serif" font-size="15" fill="#6f6659">本机 Hana</text>
+  </g>
+
+  <!-- 中间：隧道（虚线通路） -->
+  <g>
+    <path d="M200 180 H440" stroke="url(#c-ring)" stroke-width="3" stroke-dasharray="9 9" fill="none"/>
+    <circle cx="320" cy="180" r="30" fill="none" stroke="url(#c-ring)" stroke-width="4"/>
+    <ellipse cx="320" cy="180" rx="13" ry="30" fill="none" stroke="url(#c-ring)" stroke-width="4"/>
+    <path d="M290 180h60" stroke="url(#c-ring)" stroke-width="4" stroke-linecap="round"/>
+    <text x="320" y="248" text-anchor="middle" font-family="'Segoe UI','Microsoft YaHei',sans-serif" font-size="15" fill="#b0653a">cftunnel 隧道</text>
+  </g>
+
+  <!-- 右侧：外网设备 -->
+  <g transform="translate(544 180)">
+    <rect x="-34" y="-56" width="68" height="112" rx="12" fill="#ffffff" stroke="#e4d8c8" stroke-width="2"/>
+    <rect x="-24" y="-42" width="48" height="76" rx="5" fill="#f6ede2"/>
+    <circle cx="0" cy="46" r="5" fill="#c9b8a4"/>
+    <text x="0" y="-72" text-anchor="middle" font-family="'Segoe UI','Microsoft YaHei',sans-serif" font-size="15" fill="#6f6659">在外面访问</text>
+  </g>
+
+  <!-- 底部小字：驱动 -->
+  <text x="320" y="330" text-anchor="middle" font-family="'Segoe UI','Microsoft YaHei',sans-serif" font-size="13" fill="#a89c8c">由开源工具 cftunnel 驱动 · Cloud 与 Relay 双模式</text>
+</svg>

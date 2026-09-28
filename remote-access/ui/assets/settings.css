@@ -1,0 +1,41 @@
+/* 远程访问设置页 · 样式（在 panel.css 基础上追加） */
+
+.settings {
+  max-width: 640px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--ra-gap);
+}
+
+.settings__head { display: flex; flex-direction: column; gap: 3px; }
+.settings__head h1 { margin: 0; font-size: 17px; font-weight: 650; }
+
+/* ---------- 模式选择 ---------- */
+.modes { display: flex; flex-direction: column; gap: 8px; }
+.mode { display: block; cursor: pointer; }
+.mode input { position: absolute; opacity: 0; pointer-events: none; }
+.mode__box {
+  display: flex; flex-direction: column; gap: 2px;
+  padding: 11px 13px; border-radius: var(--ra-radius-sm);
+  border: 1.5px solid var(--ra-line); background: var(--ra-bg);
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.mode__name { font-weight: 600; font-size: 13px; }
+.mode__hint { color: var(--ra-sub); font-size: 12px; }
+.mode input:checked + .mode__box {
+  border-color: var(--ra-accent);
+  background: color-mix(in srgb, var(--ra-accent) 7%, var(--ra-surface));
+}
+.mode input:focus-visible + .mode__box { box-shadow: 0 0 0 3px var(--ra-accent-ring); }
+
+/* ---------- 字段 ---------- */
+.field--block { display: flex; flex-direction: column; gap: 4px; width: 100%; }
+.input--full { width: 100%; min-width: 0; }
+
+/* ---------- 底部 ---------- */
+.settings__foot {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  position: sticky; bottom: 8px;
+  padding: 10px 0 0;
+}
